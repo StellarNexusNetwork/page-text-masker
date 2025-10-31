@@ -2,7 +2,7 @@
 // @name         页面文本屏蔽器
 // @namespace    https://github.com/StellarNexusNetwork/page-text-masker
 // @version      1.3
-// @description  根据关键词/正则屏蔽页面文字，支持模糊/涂抹、整句/词模式、背景对比/文字原色、脚本开关、可选择是否启用快捷键、云端/本地/严格规则。修复“茅台/飞天茅台”覆盖问题。
+// @description  根据关键词/正则屏蔽页面文字，支持模糊/涂抹、整句/词模式、背景对比/文字原色、脚本开关、可选择是否启用快捷键、云端/本地/严格规则。
 // @match        *://*/*
 // @grant        GM_getResourceText
 // @grant        GM_xmlhttpRequest
