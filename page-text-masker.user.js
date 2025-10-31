@@ -17,7 +17,7 @@
        🧩 配置变量说明
     ------------------------ */
 
-    const REMOTE_RULES_URL = '';           // 远程规则JSON URL，可留空
+    const REMOTE_RULES_URL = 'https://blockrules.snnetwork.top';           // 远程规则JSON URL，可留空
     const AUTO_RELOAD_INTERVAL = 5*60*1000; // 自动重载规则间隔（毫秒）
     const AUTO_RESCAN_INTERVAL = 60*1000;   // 自动扫描页面间隔（毫秒）
 
