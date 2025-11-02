@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         页面文本屏蔽器
 // @namespace    https://github.com/StellarNexusNetwork/page-text-masker
-// @version      1.3
+// @version      1.3.1
 // @description  根据关键词/正则屏蔽页面文字，支持模糊/涂抹、整句/词模式、背景对比/文字原色、脚本开关、可选择是否启用快捷键、云端/本地/严格规则。
 // @match        *://*/*
 // @grant        GM_getResourceText
@@ -13,7 +13,7 @@
 (function() {
     'use strict';
 
-    const REMOTE_RULES_URL = 'https://blockrules.snnetwork.top';  // 可选的远程规则地址
+    const REMOTE_RULES_URL = 'https://blockrules.snnetwork.top/block-rules.json';  // 可选的远程规则地址
     const AUTO_RELOAD_INTERVAL = 5*60*1000; // 每 5 分钟重载规则
     const AUTO_RESCAN_INTERVAL = 60*1000;   // 每 1 分钟重扫页面
 
@@ -31,76 +31,76 @@
     // 规则缓存
     let filters = [];        // 普通关键词 / 正则
     let strictFilters = [];  // strict 模式词汇（整句匹配）
-  
-    /* ------------------------
-       📦 规则加载
-    ------------------------ */
-    async function loadFromRemote(url) {
-        return new Promise((resolve, reject) => {
-            if (!url) return reject('未配置远程链接');
-            GM_xmlhttpRequest({
-                method: 'GET',
-                url,
-                timeout: 5000,
-                onload: res => {
-                    try {
-                        const data = JSON.parse(res.responseText);
-                        resolve(data);
-                    } catch {
-                        reject('远程规则解析失败');
-                    }
-                },
-                onerror: () => reject('远程请求失败'),
-                ontimeout: () => reject('远程请求超时')
-            });
+
+/* ------------------------
+   📦 规则加载
+------------------------ */
+async function loadFromRemote(url) {
+    return new Promise((resolve, reject) => {
+        if (!url) return reject(new Error('未配置远程链接'));
+        GM_xmlhttpRequest({
+            method: 'GET',
+            url,
+            timeout: 5000,
+            onload: res => {
+                if (res.status !== 200) {
+                    return reject(new Error(`HTTP ${res.status} ${res.statusText || ''}`));
+                }
+                try {
+                    const data = JSON.parse(res.responseText);
+                    resolve(data);
+                } catch (err) {
+                    reject(new Error(`远程规则解析失败：${err.message}`));
+                }
+            },
+            onerror: err => reject(new Error(`远程请求错误：${err.error || err.message || '未知错误'}`)),
+            ontimeout: () => reject(new Error('远程请求超时（超过5秒未响应）'))
         });
-    }
+    });
+}
 
-    function loadFromLocal() {
+async function loadRules() {
+    let remoteData = { keywords: [], regex: [], strict: [] };
+    let localData = { keywords: [], regex: [], strict: [] };
+
+    if (USE_BOTH_RULES) {
         try {
-            const text = GM_getResourceText('maskRules');
-            return JSON.parse(text);
+            remoteData = await loadFromRemote(REMOTE_RULES_URL);
         } catch (err) {
-            console.error('本地规则加载失败：', err);
-            return { keywords: [], regex: [], strict: [] };
+            console.warn(`⚠️ 远程规则加载失败：${err.message}`);
+        }
+        try {
+            localData = loadFromLocal();
+        } catch (err) {
+            console.warn(`⚠️ 本地规则加载失败：${err.message}`);
+        }
+    } else {
+        try {
+            remoteData = await loadFromRemote(REMOTE_RULES_URL);
+        } catch (err) {
+            console.warn(`⚠️ 远程规则加载失败：${err.message}，使用本地规则`);
+            localData = loadFromLocal();
         }
     }
 
-    async function loadRules() {
-        let remoteData = { keywords: [], regex: [], strict: [] };
-        let localData = { keywords: [], regex: [], strict: [] };
+    const { keywords: rk = [], regex: rr = [], strict: rs = [] } = remoteData;
+    const { keywords: lk = [], regex: lr = [], strict: ls = [] } = localData;
 
-        if (USE_BOTH_RULES) {
-            try { remoteData = await loadFromRemote(REMOTE_RULES_URL); } catch { console.warn('⚠️ 远程规则加载失败'); }
-            try { localData = loadFromLocal(); } catch { console.warn('⚠️ 本地规则加载失败'); }
-        } else {
-            try {
-                remoteData = await loadFromRemote(REMOTE_RULES_URL);
-            } catch {
-                console.warn('⚠️ 远程规则加载失败，使用本地规则');
-                localData = loadFromLocal();
-            }
-        }
+    const keywords = USE_BOTH_RULES ? rk.concat(lk) : (rk.length ? rk : lk);
+    const regex = USE_BOTH_RULES ? rr.concat(lr) : (rr.length ? rr : lr);
+    const stricts = USE_BOTH_RULES ? rs.concat(ls) : (rs.length ? rs : ls);
 
-        const { keywords: rk = [], regex: rr = [], strict: rs = [] } = remoteData;
-        const { keywords: lk = [], regex: lr = [], strict: ls = [] } = localData;
+    const sortedKeywords = [...keywords].sort((a, b) => b.length - a.length);
 
-        const keywords = USE_BOTH_RULES ? rk.concat(lk) : (rk.length ? rk : lk);
-        const regex = USE_BOTH_RULES ? rr.concat(lr) : (rr.length ? rr : lr);
-        const stricts = USE_BOTH_RULES ? rs.concat(ls) : (rs.length ? rs : ls);
+    filters = [
+        ...sortedKeywords.map(k => new RegExp(k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi')),
+        ...regex.map(r => new RegExp(r, 'gi'))
+    ];
 
-        // ✅ 长词优先匹配
-        const sortedKeywords = [...keywords].sort((a, b) => b.length - a.length);
+    strictFilters = stricts.map(s => s.trim().toLowerCase());
 
-        filters = [
-            ...sortedKeywords.map(k => new RegExp(k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi')),
-            ...regex.map(r => new RegExp(r, 'gi'))
-        ];
-
-        strictFilters = stricts.map(s => s.trim().toLowerCase());
-
-        console.log(`🎯 已加载 ${filters.length} 条规则 + ${strictFilters.length} 条 strict 规则`);
-    }
+    console.log(`🎯 已加载 ${filters.length} 条规则 + ${strictFilters.length} 条 strict 规则`);
+}
 
     /* ------------------------
        🎨 样式函数
